@@ -1,5 +1,29 @@
 # Conversation Cost Calculator
 
+## Guia rápido
+
+### Desenvolvimento local (dev)
+
+1) Instale dependências
+```bash
+npm install
+```
+
+2) Copie `.env.example` para `.env` e preencha as variáveis do Azure AD
+- `SESSION_SECRET`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID`
+- Opcional: `BASE_URL` (padrão: `http://localhost:8080`)
+
+3) Suba frontend e backend juntos
+```bash
+npm run dev:all
+```
+
+4) Acesse: `http://localhost:8080`
+
+Notas rápidas:
+- O backend usa `BASE_URL` para o callback do Azure em `server.ts`.
+- Garanta que o Redirect URI no Azure AD inclua: `http://localhost:8080/auth/azure/callback`.
+
 ## Sobre o projeto
 
 - Aplicação privada para consolidação e análise de custos de conversas com IA.
@@ -14,6 +38,31 @@
 - Front-end: Vite + React + TypeScript + Tailwind CSS + shadcn-ui (SPA gerada em `dist/`).
 - Backend: Node.js/Express (`server.ts`) — autenticação Azure AD e endpoints `/auth`.
 - Deploy produtivo recomendado: pode rodar diretamente em Docker (esta imagem já serve o SPA e o backend Express) ou, opcionalmente, usar Nginx/APIGW externo como proxy reverso para o container.
+
+## Docker (passo a passo simples)
+
+1) Crie um arquivo `.env.runtime` (variáveis do servidor em runtime)
+```env
+PORT=3001
+BASE_URL=http://localhost:8080  # use exatamente a URL que você usa no navegador
+SESSION_SECRET=uma_chave_secreta_segura
+AZURE_CLIENT_ID=...
+AZURE_CLIENT_SECRET=...
+AZURE_TENANT_ID=...
+COOKIE_SECURE=false             # true somente atrás de HTTPS
+```
+
+2) (Opcional) `.env` para variáveis de build do Vite (se precisar): `VITE_*`
+
+3) Build e subida do container
+```bash
+docker compose build
+docker compose up -d
+```
+
+4) Acesse: `http://localhost:8080`
+
+5) No Azure AD, garanta o Redirect URI: `http://localhost:8080/auth/azure/callback`
 
 ## Docker (build e execução)
 
