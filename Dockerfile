@@ -1,0 +1,59 @@
+# Multi-stage Dockerfile: build frontend + compile server, then run minimal image
+
+# 1) Builder
+FROM node:20-alpine AS builder
+WORKDIR /app
+
+# Install dependencies
+COPY package*.json ./
+RUN npm ci
+
+# Copy source
+COPY . .
+
+# Vite build-time variables (optional, can be passed via --build-arg)
+ARG VITE_HTTP_REQUEST_NAME
+ARG VITE_HTTP_REQUEST_VALOR
+ARG VITE_CONVERSATION_WEBHOOK_URL
+ARG VITE_FETCH_PRICING_WEBHOOK_URL
+ARG VITE_SAVE_PRICING_WEBHOOK_URL
+ARG VITE_COLETAR_USUARIOS_WEBHOOK_URL
+ARG VITE_CADASTRAR_USUARIO_WEBHOOK_URL
+ARG VITE_COLETAR_TODOS_USUARIOS_WEBHOOK_URL
+ARG VITE_ATUALIZAR_USUARIO_WEBHOOK_URL
+
+# Expose them to the build step
+ENV VITE_HTTP_REQUEST_NAME=${VITE_HTTP_REQUEST_NAME}
+ENV VITE_HTTP_REQUEST_VALOR=${VITE_HTTP_REQUEST_VALOR}
+ENV VITE_CONVERSATION_WEBHOOK_URL=${VITE_CONVERSATION_WEBHOOK_URL}
+ENV VITE_FETCH_PRICING_WEBHOOK_URL=${VITE_FETCH_PRICING_WEBHOOK_URL}
+ENV VITE_SAVE_PRICING_WEBHOOK_URL=${VITE_SAVE_PRICING_WEBHOOK_URL}
+ENV VITE_COLETAR_USUARIOS_WEBHOOK_URL=${VITE_COLETAR_USUARIOS_WEBHOOK_URL}
+ENV VITE_CADASTRAR_USUARIO_WEBHOOK_URL=${VITE_CADASTRAR_USUARIO_WEBHOOK_URL}
+ENV VITE_COLETAR_TODOS_USUARIOS_WEBHOOK_URL=${VITE_COLETAR_TODOS_USUARIOS_WEBHOOK_URL}
+ENV VITE_ATUALIZAR_USUARIO_WEBHOOK_URL=${VITE_ATUALIZAR_USUARIO_WEBHOOK_URL}
+
+# Build frontend and compile server
+RUN npm run build:all
+
+# 2) Runner (production)
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+
+# Install production deps only
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+# Copy built artifacts only
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/build/server ./build/server
+
+# Runtime environment
+ENV PORT=3001
+EXPOSE 3001
+
+# Security best practice: run as non-root user
+USER node
+
+CMD ["npm", "start"]
