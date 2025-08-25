@@ -26,10 +26,10 @@ const distPath = candidateDist.find((p) => {
 app.set("trust proxy", 1);
 
 // Carregar variáveis de ambiente
-const AZURE_CLIENT_ID = process.env.AZURE_CLIENT_ID;
-const AZURE_CLIENT_SECRET = process.env.AZURE_CLIENT_SECRET;
-const AZURE_TENANT_ID = process.env.AZURE_TENANT_ID;
-const BASE_URL = process.env.BASE_URL || "http://localhost:8080";
+const AZURE_CLIENT_ID = process.env.AZURE_CLIENT_ID as string;
+const AZURE_CLIENT_SECRET = process.env.AZURE_CLIENT_SECRET as string;
+const AZURE_TENANT_ID = process.env.AZURE_TENANT_ID as string;
+const BASE_URL = (process.env.BASE_URL as string) || "http://localhost:8080";
 const COOKIE_SECURE = (() => {
   const v = String(process.env.COOKIE_SECURE || "").toLowerCase();
   return v === "true" || v === "1" || v === "yes";
@@ -79,11 +79,20 @@ app.get("/auth/azure/login", async (req, res) => {
   const state = Math.random().toString(36).slice(2);
   (req.session as any).authState = state;
 
+  // Preserva rota de retorno (somente caminhos relativos seguros)
+  const q = (req.query.returnUrl as string) || "/";
+  let safeReturn = "/";
+  if (typeof q === "string" && q.startsWith("/") && !q.startsWith("//")) {
+    // Evita open-redirect; mantém apenas caminho dentro do site
+    safeReturn = q;
+  }
+  (req.session as any).postLoginRedirect = safeReturn;
+
   const authCodeUrlParameters = {
     scopes: SCOPES,
     redirectUri: `${BASE_URL}/auth/azure/callback`,
     state,
-  };
+  } as const;
 
   try {
     const authUrl = await cca.getAuthCodeUrl(authCodeUrlParameters);
@@ -116,7 +125,10 @@ app.get("/auth/azure/callback", async (req, res) => {
     const tokenResponse = await cca.acquireTokenByCode(tokenRequest);
     (req.session as any).account = tokenResponse.account;
     (req.session as any).accessToken = tokenResponse.accessToken;
-    res.redirect("/");
+    const redirectTo = (req.session as any).postLoginRedirect || "/";
+    // Limpa o return armazenado após uso
+    (req.session as any).postLoginRedirect = undefined;
+    res.redirect(redirectTo);
   } catch (error) {
     res.status(500).send("Falha ao autenticar");
   }

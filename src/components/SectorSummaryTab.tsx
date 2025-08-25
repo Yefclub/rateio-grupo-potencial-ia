@@ -10,6 +10,7 @@ import { ConversationCost } from "@/types/conversation";
 import { useDateFilteredConversations } from "@/hooks/useDateFilteredConversations";
 import { getDateRangeFromFilter } from "@/lib/dateFilterUtils";
 import { FilterInfoBar } from "@/components/FilterInfoBar";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface SectorData {
   setor: string;
@@ -197,6 +198,30 @@ export const SectorSummaryTab = ({ conversations, allConversations }: Props) => 
     return { allMonthlyBySystem: bySystem, allMonthsOrder, systemsList };
   }, [conversations, allConversations]);
 
+  const { usersBySystem, systemOrder, systemTotals } = useMemo(() => {
+    const bySystem: Record<string, Record<string, { username: string; email: string; conversas: number; tokens: number; custo: number }>> = {};
+    const totals: Record<string, number> = {};
+    (filteredDataSource || []).forEach((conv) => {
+      const sys = conv.sistema || 'Sem Sistema';
+      if (!bySystem[sys]) bySystem[sys] = {};
+      const key = (conv.email || conv.username || '—').toLowerCase();
+      if (!bySystem[sys][key]) {
+        bySystem[sys][key] = { username: conv.username || '—', email: conv.email || '—', conversas: 0, tokens: 0, custo: 0 };
+      }
+      const u = bySystem[sys][key];
+      u.conversas += 1;
+      u.tokens += (conv.tokens_entrada || 0) + (conv.tokens_saida || 0);
+      u.custo += (conv.custo_total || 0);
+      totals[sys] = (totals[sys] || 0) + (conv.custo_total || 0);
+    });
+    const result: Record<string, { username: string; email: string; conversas: number; tokens: number; custo: number }[]> = {};
+    Object.entries(bySystem).forEach(([sys, usersMap]) => {
+      result[sys] = Object.values(usersMap).sort((a, b) => b.custo - a.custo);
+    });
+    const order = Object.keys(result).sort((a, b) => (totals[b] || 0) - (totals[a] || 0));
+    return { usersBySystem: result, systemOrder: order, systemTotals: totals };
+  }, [filteredDataSource]);
+
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'USD', minimumFractionDigits: 6, maximumFractionDigits: 8 }).format(value || 0);
 
@@ -206,6 +231,82 @@ export const SectorSummaryTab = ({ conversations, allConversations }: Props) => 
     if (y && m) return `${m}/${y}`;
     return mk;
   };
+
+  // Estado para granularidade da nova aba
+  const [userPeriodGranularity, setUserPeriodGranularity] = useState<'daily' | 'monthly' | 'yearly'>('monthly');
+
+  // Helpers de data
+  const parseDate = (dateStr?: string): Date | null => {
+    if (!dateStr) return null;
+    if (dateStr.includes('/')) {
+      const [dd, mm, yyyyRaw] = dateStr.split('/');
+      const yyyy = (yyyyRaw?.length === 2) ? Number(`20${yyyyRaw}`) : Number(yyyyRaw);
+      const d = Number(dd);
+      const m = Number(mm);
+      if (Number.isFinite(d) && Number.isFinite(m) && Number.isFinite(yyyy)) {
+        return new Date(yyyy, m - 1, d);
+      }
+    }
+    if (dateStr.includes('-')) {
+      // Espera YYYY-MM ou YYYY-MM-DD
+      const parts = dateStr.split('-').map(Number);
+      if (parts.length === 2) return new Date(parts[0], parts[1] - 1, 1);
+      if (parts.length === 3) return new Date(parts[0], parts[1] - 1, parts[2]);
+    }
+    return null;
+  };
+
+  const getPeriodKey = (dateStr: string | undefined, mode: 'daily' | 'monthly' | 'yearly'): string => {
+    const d = parseDate(dateStr);
+    if (!d) return 'unknown';
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    if (mode === 'daily') return `${yyyy}-${mm}-${dd}`;
+    if (mode === 'monthly') return `${yyyy}-${mm}`;
+    return `${yyyy}`; // yearly
+  };
+
+  const formatPeriodLabel = (key: string, mode: 'daily' | 'monthly' | 'yearly') => {
+    if (!key || key === 'unknown') return key || '';
+    if (mode === 'daily') {
+      const [y, m, d] = key.split('-');
+      if (y && m && d) return `${d}/${m}/${y}`;
+      return key;
+    }
+    if (mode === 'monthly') return formatMonthLabel(key);
+    return key; // yearly já é YYYY
+  };
+
+  // Agregação por sistema -> período -> usuário
+  const { usersBySystemPeriod, periodOrder } = useMemo(() => {
+    const bySystem: Record<string, Record<string, Record<string, { username: string; email: string; conversas: number; tokens: number; custo: number }>>> = {};
+    const allPeriods: Record<string, true> = {};
+    (filteredDataSource || []).forEach((conv) => {
+      const sys = conv.sistema || 'Sem Sistema';
+      const pk = getPeriodKey(conv.data, userPeriodGranularity);
+      allPeriods[pk] = true;
+      if (!bySystem[sys]) bySystem[sys] = {};
+      if (!bySystem[sys][pk]) bySystem[sys][pk] = {};
+      const key = (conv.email || conv.username || '—').toLowerCase();
+      if (!bySystem[sys][pk][key]) {
+        bySystem[sys][pk][key] = { username: conv.username || '—', email: conv.email || '—', conversas: 0, tokens: 0, custo: 0 };
+      }
+      const u = bySystem[sys][pk][key];
+      u.conversas += 1;
+      u.tokens += (conv.tokens_entrada || 0) + (conv.tokens_saida || 0);
+      u.custo += (conv.custo_total || 0);
+    });
+    const result: Record<string, Record<string, { username: string; email: string; conversas: number; tokens: number; custo: number }[]>> = {};
+    Object.entries(bySystem).forEach(([sys, periodMap]) => {
+      result[sys] = {};
+      Object.entries(periodMap).forEach(([pk, usersMap]) => {
+        result[sys][pk] = Object.values(usersMap).sort((a, b) => b.custo - a.custo);
+      });
+    });
+    const order = Object.keys(allPeriods).filter((k) => k !== 'unknown').sort();
+    return { usersBySystemPeriod: result, periodOrder: order };
+  }, [filteredDataSource, userPeriodGranularity]);
 
   const exportExcelConsolidado = () => {
     const wb = XLSX.utils.book_new();
@@ -411,102 +512,238 @@ export const SectorSummaryTab = ({ conversations, allConversations }: Props) => 
         </Card>
       </div>
 
-      {/* Resumo por Setor */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between gap-3">
-            <CardTitle>Resumo por Setor</CardTitle>
-            <div className="inline-flex items-center gap-2 rounded-full border bg-background/70 px-3 py-1.5 text-xs sm:text-sm">
-              <CalendarDays className="h-4 w-4 text-primary" />
-              <span className="text-muted-foreground">Período:</span>
-              {dateRange.start && dateRange.end ? (
-                <span className="font-medium">{dateRange.start} — {dateRange.end}</span>
-              ) : (
-                <span className="font-medium">todos os registros</span>
-              )}
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-muted-foreground">
-                  <th className="py-2 pr-3">Setor</th>
-                  <th className="py-2 pr-3">Usuários</th>
-                  <th className="py-2 pr-3">Conversas</th>
-                  <th className="py-2 pr-3">Tokens</th>
-                  <th className="py-2 pr-3">Custo Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sectorData.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="py-6 text-center text-muted-foreground">Nenhum dado disponível</td>
-                  </tr>
-                ) : (
-                  sectorData.map((s) => (
-                    <tr key={s.setor} className="border-t">
-                      <td className="py-2 pr-3 font-medium">{s.setor}</td>
-                      <td className="py-2 pr-3">{s.resumo.usuarios_unicos.toLocaleString()}</td>
-                      <td className="py-2 pr-3">{s.resumo.total_conversas.toLocaleString()}</td>
-                      <td className="py-2 pr-3">{s.resumo.total_tokens.toLocaleString()}</td>
-                      <td className="py-2 pr-3 font-mono">{formatCurrency(s.resumo.custo_total)}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Abas de relatório detalhado */}
+      <Tabs defaultValue="setores" className="w-full">
+        <TabsList className="grid grid-cols-3 w-full sm:w-auto">
+          <TabsTrigger value="setores">Resumo por Setor</TabsTrigger>
+          <TabsTrigger value="usuarios">Usuários por Sistema</TabsTrigger>
+          <TabsTrigger value="usuarios-periodo">Usuários x Período</TabsTrigger>
+        </TabsList>
 
-      {/* Resumo Mensal (Geral) – independente dos filtros da aba, separado por sistema */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Resumo Mensal (Geral)</CardTitle>
-          <p className="text-sm text-muted-foreground">Independente dos filtros. Mostra todos os meses disponíveis, separado por sistema.</p>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {systemsList.length === 0 ? (
-            <div className="py-6 text-center text-muted-foreground">Nenhum dado disponível</div>
-          ) : (
-            systemsList.map((sys) => (
-              <div key={sys}>
-                <h4 className="font-semibold mb-2">Sistema: {sys}</h4>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-muted-foreground">
-                        <th className="py-2 pr-3">Mês</th>
-                        <th className="py-2 pr-3">Conversas</th>
-                        <th className="py-2 pr-3">Tokens</th>
-                        <th className="py-2 pr-3">Custo Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {allMonthsOrder.length === 0 ? (
-                        <tr>
-                          <td colSpan={4} className="py-6 text-center text-muted-foreground">Nenhum dado disponível</td>
-                        </tr>
-                      ) : (
-                        allMonthsOrder.map((mk) => (
-                          <tr key={`${sys}-${mk}`} className="border-t">
-                            <td className="py-2 pr-3">{formatMonthLabel(mk)}</td>
-                            <td className="py-2 pr-3">{(allMonthlyBySystem[sys]?.[mk]?.conversas || 0).toLocaleString()}</td>
-                            <td className="py-2 pr-3">{(allMonthlyBySystem[sys]?.[mk]?.tokens || 0).toLocaleString()}</td>
-                            <td className="py-2 pr-3 font-mono">{formatCurrency(allMonthlyBySystem[sys]?.[mk]?.custo || 0)}</td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
+        <TabsContent value="setores">
+          {/* Resumo por Setor */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle>Resumo por Setor</CardTitle>
+                <div className="inline-flex items-center gap-2 rounded-full border bg-background/70 px-3 py-1.5 text-xs sm:text-sm">
+                  <CalendarDays className="h-4 w-4 text-primary" />
+                  <span className="text-muted-foreground">Período:</span>
+                  {dateRange.start && dateRange.end ? (
+                    <span className="font-medium">{dateRange.start} — {dateRange.end}</span>
+                  ) : (
+                    <span className="font-medium">todos os registros</span>
+                  )}
                 </div>
               </div>
-            ))
-          )}
-        </CardContent>
-      </Card>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-muted-foreground">
+                      <th className="py-2 pr-3">Setor</th>
+                      <th className="py-2 pr-3">Usuários</th>
+                      <th className="py-2 pr-3">Conversas</th>
+                      <th className="py-2 pr-3">Tokens</th>
+                      <th className="py-2 pr-3">Custo Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sectorData.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="py-6 text-center text-muted-foreground">Nenhum dado disponível</td>
+                      </tr>
+                    ) : (
+                      sectorData.map((s) => (
+                        <tr key={s.setor} className="border-t">
+                          <td className="py-2 pr-3 font-medium">{s.setor}</td>
+                          <td className="py-2 pr-3">{s.resumo.usuarios_unicos.toLocaleString()}</td>
+                          <td className="py-2 pr-3">{s.resumo.total_conversas.toLocaleString()}</td>
+                          <td className="py-2 pr-3">{s.resumo.total_tokens.toLocaleString()}</td>
+                          <td className="py-2 pr-3 font-mono">{formatCurrency(s.resumo.custo_total)}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Resumo Mensal (Geral) – independente dos filtros da aba, separado por sistema */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Resumo Mensal (Geral)</CardTitle>
+              <p className="text-sm text-muted-foreground">Independente dos filtros. Mostra todos os meses disponíveis, separado por sistema.</p>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {systemsList.length === 0 ? (
+                <div className="py-6 text-center text-muted-foreground">Nenhum dado disponível</div>
+              ) : (
+                systemsList.map((sys) => (
+                  <div key={sys}>
+                    <h4 className="font-semibold mb-2">Sistema: {sys}</h4>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-muted-foreground">
+                            <th className="py-2 pr-3">Mês</th>
+                            <th className="py-2 pr-3">Conversas</th>
+                            <th className="py-2 pr-3">Tokens</th>
+                            <th className="py-2 pr-3">Custo Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {allMonthsOrder.length === 0 ? (
+                            <tr>
+                              <td colSpan={4} className="py-6 text-center text-muted-foreground">Nenhum dado disponível</td>
+                            </tr>
+                          ) : (
+                            allMonthsOrder.map((mk) => (
+                              <tr key={`${sys}-${mk}`} className="border-t">
+                                <td className="py-2 pr-3">{formatMonthLabel(mk)}</td>
+                                <td className="py-2 pr-3">{(allMonthlyBySystem[sys]?.[mk]?.conversas || 0).toLocaleString()}</td>
+                                <td className="py-2 pr-3">{(allMonthlyBySystem[sys]?.[mk]?.tokens || 0).toLocaleString()}</td>
+                                <td className="py-2 pr-3 font-mono">{formatCurrency(allMonthlyBySystem[sys]?.[mk]?.custo || 0)}</td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="usuarios">
+          <Card>
+            <CardHeader>
+              <CardTitle>Usuários por Sistema</CardTitle>
+              <p className="text-sm text-muted-foreground">Respeita os filtros de período e sistema aplicados acima.</p>
+            </CardHeader>
+            <CardContent className="space-y-8">
+              {systemOrder.length === 0 ? (
+                <div className="py-6 text-center text-muted-foreground">Nenhum dado disponível</div>
+              ) : (
+                systemOrder.map((sys) => (
+                  <div key={sys}>
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="font-semibold">Sistema: {sys}</h4>
+                      <span className="text-sm text-muted-foreground">Total do Sistema: <span className="font-medium">{formatCurrency(systemTotals[sys] || 0)}</span></span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-muted-foreground">
+                            <th className="py-2 pr-3">Usuário</th>
+                            <th className="py-2 pr-3">E-mail</th>
+                            <th className="py-2 pr-3">Conversas</th>
+                            <th className="py-2 pr-3">Tokens</th>
+                            <th className="py-2 pr-3">Custo Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(usersBySystem[sys] || []).length === 0 ? (
+                            <tr>
+                              <td colSpan={5} className="py-6 text-center text-muted-foreground">Nenhum usuário</td>
+                            </tr>
+                          ) : (
+                            usersBySystem[sys].map((u, idx) => (
+                              <tr key={`${sys}-u-${idx}`} className="border-t">
+                                <td className="py-2 pr-3">{u.username}</td>
+                                <td className="py-2 pr-3">{u.email}</td>
+                                <td className="py-2 pr-3">{u.conversas.toLocaleString()}</td>
+                                <td className="py-2 pr-3">{u.tokens.toLocaleString()}</td>
+                                <td className="py-2 pr-3 font-mono">{formatCurrency(u.custo)}</td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="usuarios-periodo">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <CardTitle>Usuários por Sistema x Período</CardTitle>
+                  <p className="text-sm text-muted-foreground">Respeita os filtros de período e sistema aplicados acima.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Granularidade:</span>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant={userPeriodGranularity === 'daily' ? 'default' : 'outline'} onClick={() => setUserPeriodGranularity('daily')}>Diário</Button>
+                    <Button size="sm" variant={userPeriodGranularity === 'monthly' ? 'default' : 'outline'} onClick={() => setUserPeriodGranularity('monthly')}>Mensal</Button>
+                    <Button size="sm" variant={userPeriodGranularity === 'yearly' ? 'default' : 'outline'} onClick={() => setUserPeriodGranularity('yearly')}>Anual</Button>
+                  </div>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-8">
+              {Object.keys(usersBySystemPeriod).length === 0 ? (
+                <div className="py-6 text-center text-muted-foreground">Nenhum dado disponível</div>
+              ) : (
+                Object.keys(usersBySystemPeriod)
+                  .sort((a, b) => (systemTotals[b] || 0) - (systemTotals[a] || 0))
+                  .map((sys) => (
+                  <div key={sys}>
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="font-semibold">Sistema: {sys}</h4>
+                      <span className="text-sm text-muted-foreground">Total do Sistema: <span className="font-medium">{formatCurrency(systemTotals[sys] || 0)}</span></span>
+                    </div>
+                    {periodOrder.filter((pk) => (usersBySystemPeriod[sys]?.[pk]?.length || 0) > 0).length === 0 ? (
+                      <div className="py-3 text-sm text-muted-foreground">Nenhum dado para o período selecionado</div>
+                    ) : (
+                      periodOrder.map((pk) => (
+                        (usersBySystemPeriod[sys]?.[pk]?.length || 0) > 0 ? (
+                          <div key={`${sys}-${pk}`} className="mb-6">
+                            <h5 className="font-medium mb-2">Período: {formatPeriodLabel(pk, userPeriodGranularity)}</h5>
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-sm">
+                                <thead>
+                                  <tr className="text-left text-muted-foreground">
+                                    <th className="py-2 pr-3">Usuário</th>
+                                    <th className="py-2 pr-3">E-mail</th>
+                                    <th className="py-2 pr-3">Conversas</th>
+                                    <th className="py-2 pr-3">Tokens</th>
+                                    <th className="py-2 pr-3">Custo Total</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {usersBySystemPeriod[sys][pk].map((u, idx) => (
+                                    <tr key={`${sys}-${pk}-u-${idx}`} className="border-t">
+                                      <td className="py-2 pr-3">{u.username}</td>
+                                      <td className="py-2 pr-3">{u.email}</td>
+                                      <td className="py-2 pr-3">{u.conversas.toLocaleString()}</td>
+                                      <td className="py-2 pr-3">{u.tokens.toLocaleString()}</td>
+                                      <td className="py-2 pr-3 font-mono">{formatCurrency(u.custo)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        ) : null
+                      ))
+                    )}
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 };

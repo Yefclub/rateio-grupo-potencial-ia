@@ -111,7 +111,27 @@ const AuthProviderInner = ({ children }: AuthProviderInnerProps) => {
   }, []);
 
   const login = async () => {
-    window.location.href = "/auth/azure/login";
+    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    const url = `/auth/azure/login?returnUrl=${encodeURIComponent(current)}`;
+    try {
+      // Se estiver dentro de iframe/modal, garantir navegação no topo
+      if (window.top && window.top !== window.self) {
+        // Tenta usar target _top para forçar navegação no contexto principal
+        const a = document.createElement('a');
+        a.href = url;
+        a.target = '_top';
+        a.rel = 'opener';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        return;
+      }
+      // Navegação normal
+      window.location.assign(url);
+    } catch {
+      // Fallback final
+      window.location.href = url;
+    }
   };
 
   const logout = async () => {

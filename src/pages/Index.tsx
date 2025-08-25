@@ -379,6 +379,14 @@ const Index = () => {
                 dateRange={dateRange}
               />
             </div>
+            {/* Filtro por Sistema na tela de Conversas */}
+            <div className="mb-4">
+              <SystemFilter 
+                systems={availableSystems} 
+                selectedSystem={systemFilter} 
+                onSystemChange={setSystemFilter} 
+              />
+            </div>
             <Tabs defaultValue="conversations" className="w-full" onValueChange={(value) => {
               if (value === "conversations") setGroupingMode("section");
               else if (value === "users") setGroupingMode("user");
