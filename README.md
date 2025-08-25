@@ -206,6 +206,37 @@ Frontend (definidas antes do build — Vite):
 - `VITE_FETCH_PRICING_WEBHOOK_URL=https://seu-backend-webhook/pricing/fetch`
 - `VITE_SAVE_PRICING_WEBHOOK_URL=https://seu-backend-webhook/pricing/save`
 
+### Exemplo de `.env` / `.env.runtime`
+
+```env
+# Headers de autenticação para webhooks
+VITE_HTTP_REQUEST_NAME=
+VITE_HTTP_REQUEST_VALOR=
+
+# Webhooks de dados/pricing
+VITE_CONVERSATION_WEBHOOK_URL=
+VITE_FETCH_PRICING_WEBHOOK_URL=
+VITE_SAVE_PRICING_WEBHOOK_URL=
+
+# Webhooks de usuários/ACL
+VITE_COLETAR_USUARIOS_WEBHOOK_URL=
+VITE_CADASTRAR_USUARIO_WEBHOOK_URL=
+VITE_COLETAR_TODOS_USUARIOS_WEBHOOK_URL=
+VITE_ATUALIZAR_USUARIO_WEBHOOK_URL=
+
+# Server
+PORT=3001
+
+# Configurações do Azure AD
+SESSION_SECRET=
+AZURE_CLIENT_ID=
+AZURE_CLIENT_SECRET=
+AZURE_TENANT_ID=
+
+# Se estiver atrás de HTTPS (proxy reverso), deixe true
+COOKIE_SECURE=false
+```
+
 Observações importantes:
 
 - O filtro de datas envia a query SQL completa ao webhook via parâmetro `query`, permitindo filtragem server-side e melhor performance.
